@@ -1,0 +1,286 @@
+### Agrupamento por padrão de notas
+
+##Importando bibliotecas
+import pandas as pd
+import numpy as np
+import seaborn as sns
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score,silhouette_score
+import matplotlib.pyplot as plt
+import plotly.express as px
+!pip install openpyxl
+from google.colab import files
+from sklearn.impute import KNNImputer
+
+##Agrupamento - K-Médias
+from google.colab import files
+uploaded = files.upload()
+
+#Criando o Dataframe
+dados2025 = pd.read_excel('Dados Fundamental 2 Limpos 2025.xlsx')
+#Ideia do nome: dados referentes a 2025
+dados2025 = dados2025.dropna(how='all') #Remove as linhas que aparecem NaN em todas as colunas
+dados2025
+
+##Trabalhando com o 6º ano
+dados2025_etapa_6 = dados2025[dados2025['Etapa_2025_1'] == 6].copy()
+#Ideia do nome: dados de 2025 do 6º ano
+#display(dados_etapa_6.head())
+dados2025_etapa_6
+
+#Mapa de correlação entre as variáveis
+# Selecionando as colunas de interesse (excluindo a Matrícula)
+colunas_interesse = [
+    'Transporte_2025_1',
+    'BF_2025_1',
+    'M_Português_2025',
+    'F_Português_2025',
+    'M_Matemática_2025',
+    'F_Matemática_2025',
+    'M_Ciências_2025',
+    'F_Ciências_2025',
+    'M_História_2025',
+    'F_História_2025',
+    'M_Geografia_2025',
+    'F_Geografia_2025',
+    'M_Arte_2025',
+    'F_Arte_2025',
+    'M_EdFísica_2025',
+    'F_EdFísica_2025',
+    'M_Inglês_2025',
+    'F_Inglês_2025',
+    'Média Global',
+    'Faltas Médias',
+]
+
+#Calculando a correlação de Pearson entre as variáveis
+matriz_corr = dados2025_etapa_6[colunas_interesse].corr()
+
+#Criando uma máscara para ocultar a metade superior
+mascara = np.triu(np.ones_like(matriz_corr, dtype=bool))
+
+#Configurando o tamanho do mapa de calor
+plt.figure(figsize=(16, 12))
+sns.heatmap(
+    matriz_corr,
+    mask=mascara,
+    annot=True,  # Mostra o valor numérico em cada quadrado
+    fmt='.2f',  # 2 casas decimais
+    cmap='coolwarm',  # Azul = correlação negativa, Vermelho = positiva
+    vmin=-1,
+    vmax=1,  # Trava a escala de -1 a +1
+    linewidths=0.5,  # Linhas finas separando os blocos
+    cbar_kws={'shrink': 0.8},
+)
+
+plt.title('Mapa de Calor de Correlação - 6º Ano (2025)', fontsize=16, pad=15)
+plt.xticks(rotation=45, ha='right')
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.show()
+
+##Usando a técnica KNN Imputer para preencher dados ausentes
+#Isolando as colunas numéricas sem identificadores
+cols = dados2025.select_dtypes(include=['number']).columns.drop('Matrícula', errors='ignore')
+
+#Instancia o imputador baseado nos 5 vizinhos mais próximos
+imputer = KNNImputer(n_neighbors=5)
+
+#Aplicando a imputação
+dados2025[cols] = imputer.fit_transform(dados2025[cols])
+
+##Montando um Dataframe
+# Selecionando apenas as colunas com as notas médias e faltas totais no ano
+# X2025 será o conjunto de dados utilizado para o agrupamento
+X2025_6 = dados2025_etapa_6[['Transporte_2025_1', 'BF_2025_1', 'M_Leitura_2025', 'M_Registro_2025', 'M_Gênero_2025', 'M_Coecoesão_2025', 'M_Português_2025', 'F_Português_2025', 'M_Matemática_2025', 'F_Matemática_2025', 'M_Ciências_2025', 'F_Ciências_2025', 'M_História_2025', 'F_História_2025', 'M_Geografia_2025', 'F_Geografia_2025', 'M_Arte_2025', 'F_Arte_2025', 'M_EdFísica_2025', 'F_EdFísica_2025', 'M_Inglês_2025', 'F_Inglês_2025' ]]
+#Ideia do nome: dados usados para o agrupamento em 2025 para o 6º ano
+
+##Padronizando as notas
+# Padronizando para o agrupamento
+scaler = StandardScaler()
+X2025_6_scaled = scaler.fit_transform(X2025_6)
+
+##Gráfico de cotovelo
+# Encontrando o número de grupos, conforme Elbow Method (cotovelo)
+wcss = []#lista com as distâncias ao quadrado de cada ponto ao centro do grupo
+for i in range(1, 11):
+    kmeans = KMeans(n_clusters=i, init='k-means++', random_state=42)#variar o número
+    kmeans.fit(X2025_6_scaled)
+    wcss.append(kmeans.inertia_)
+
+plt.plot(range(1, 11), wcss)
+plt.title('Método do Cotovelo')
+plt.xlabel('Número de Clusters')
+plt.ylabel('WCSS (Inércia)')
+plt.show()
+
+##Tabela com as métricas para auxiliar na escolha da quantidade de agrupamentos
+metricas = []
+
+for k in range(2, 6):
+    km = KMeans(
+        n_clusters=k,
+        init='k-means++',
+        n_init=25,
+        max_iter=500,
+        tol=0.00005,
+        random_state=42,
+    )
+    labels = km.fit_predict(X2025_6_scaled)
+
+    metricas.append({
+        'k': k,
+        'Silhouette (↑)': round(silhouette_score(X2025_6_scaled, labels), 3),
+        'Davies-Bouldin (↓)': round(
+            davies_bouldin_score(X2025_6_scaled, labels), 3
+        ),
+        'Calinski-Harabasz (↑)': round(
+            calinski_harabasz_score(X2025_6_scaled, labels), 1
+        ),
+    })
+
+tabela_validacao = pd.DataFrame(metricas)
+display(tabela_validacao)
+
+##Montando 3 grupos
+# Aplicando o K-Média (K-Means) para 3 grupos
+kmeans = KMeans(
+    n_clusters=3,
+    init='k-means++',
+    n_init = 25, #quantidade de vezes que a montagem ocorrerá e que será escolhida a melhor
+    max_iter = 500, #número máximo de iterações em cada execução para os centroides convergirem.
+    tol = 0.00005, #critério de parada
+    random_state=42)#mudar este número e o número de grupos
+
+# Criando uma cópia do DataFrame correto (dados2025_etapa_6) para adicionar a coluna 'Grupo6_2025'
+dados6_2025 = dados2025_etapa_6.copy()
+#Ideia do nome: dados do 6º ano de 2025
+dados6_2025['Grupo6_2025'] = kmeans.fit_predict(X2025_6_scaled)
+#Ideia do nome da nova coluna: Agrupamentos realizados no 6º ano de 2025
+
+# Criando uma tabela resumo com a média de cada componente por perfil encontrado
+analise_perfis = dados6_2025.groupby('Grupo6_2025').agg({
+    'Transporte_2025_1': 'mean',
+    'BF_2025_1': 'mean',
+    'M_Leitura_2025': 'mean',
+    'M_Registro_2025': 'mean',
+    'M_Gênero_2025': 'mean',
+    'M_Coecoesão_2025': 'mean',
+    'M_Português_2025': 'mean',
+    'F_Português_2025': 'mean',
+    'M_Matemática_2025': 'mean',
+    'F_Matemática_2025': 'mean',
+    'M_Ciências_2025': 'mean',
+    'F_Ciências_2025': 'mean',
+    'M_História_2025': 'mean',
+    'F_História_2025': 'mean',
+    'M_Geografia_2025': 'mean',
+    'F_Geografia_2025': 'mean',
+    'M_Arte_2025': 'mean',
+    'F_Arte_2025': 'mean',
+    'M_EdFísica_2025': 'mean',
+    'F_EdFísica_2025': 'mean',
+    'M_Inglês_2025': 'mean',
+    'F_Inglês_2025': 'mean',
+    'Média Global': 'mean',
+    'Faltas Médias': 'mean',
+    'Matrícula': 'count' # Pra saber quantos alunos tem em cada grupo
+}).rename(columns={'Matrícula': 'Qtd_Alunos'})
+
+# Exibindo o resultado
+display(analise_perfis)
+
+##Silhouette Score
+from sklearn.metrics import silhouette_score
+
+# Calculando o coeficiente de silhueta (Silhouette Score) para os 3 clusters
+silhouette_avg = silhouette_score(X2025_6_scaled, dados6_2025['Grupo6_2025'])
+
+print(f"O Silhouette Score médio para os 3 grupos é: {silhouette_avg:.3f}")
+
+##Técnicas
+from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
+
+X = X2025_6_scaled
+labels = dados6_2025['Grupo6_2025']
+
+#Silhouette Score
+sil = silhouette_score(X, labels)
+
+#Davies-Bouldin
+db = davies_bouldin_score(X, labels)
+
+#Calinski-Harabasz
+ch = calinski_harabasz_score(X, labels)
+
+print(f"Silhouette Score:       {sil:.3f}  (Quanto maior, melhor; varia entre -1 e 1")
+print(f"Davies-Bouldin Index:   {db:.3f}  (Quanto menor, melhor; é maior que 0")
+print(f"Calinski-Harabasz:      {ch:.1f}  (Quanto maior, melhor; é maior que 0")
+
+##Gráfico de dispersão estático apenas para visualizar os agrupamentos
+# Configurando o gráfico
+plt.figure(figsize=(12, 8))
+
+# O nome da coluna X deve ser 'Interdisciplinar' conforme sua planilha
+sns.scatterplot(
+    data=dados6_2025,
+    x='Média Global',#Média final dos estudantes (média simples das médias das disciplinas)
+    y='Faltas Médias', #Média das faltas sem onsiderar carga horária total (o ideal era fazer proporcional)
+    hue='Grupo6_2025',
+    palette='viridis',
+    s=100,
+    style='Grupo6_2025',
+    alpha=0.8
+)
+
+plt.title('Separação dos Perfis: Média Global vs. Faltas Médias', fontsize=15)
+plt.xlabel('Média Global', fontsize=12)
+plt.ylabel('Faltas Médias', fontsize=12)
+plt.legend(title='Perfil de Aluno', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.grid(True, linestyle='--', alpha=0.6)
+
+plt.tight_layout()
+plt.show()
+
+##Gráfico de dispersão dinâmico
+# Criando o gráfico interativo com Plotly
+fig = px.scatter(
+    dados6_2025,
+    x='Média Global',
+    y='Faltas Médias',
+    color='Grupo6_2025',          # Cor por grupo
+    hover_data=['Matrícula'],   # ESTA LINHA faz aparecer o número do estudante ao passar o mouse
+    title='Gráfico Interativo: Perfis de Alunos (Passe o mouse nos pontos)',
+    labels={'Média Global', 'Faltas Médias'},
+    symbol='Grupo6_2025',         # Formas diferentes para cada perfil
+    color_continuous_scale='Viridis'
+)
+
+# Ajustando o layout para ficar mais limpo
+fig.update_layout(
+    xaxis_title="Média Global",
+    yaxis_title="Faltas Médias",
+    legend_title="Grupo6_2025"
+)
+
+# Exibe o gráfico
+fig.show()
+
+##Exibir e adicionar coluna
+dados6_2025['Grupo6_2025'] = kmeans.labels_
+
+# Ordenando os grupos por Perfil3
+dados6_2025_ordenados = dados6_2025.sort_values(by='Grupo6_2025')
+
+# Exibir as primeiras linhas para conferir a nova coluna
+print("Coluna 'Grupo6_2025' adicionada com sucesso!")
+display(dados6_2025_ordenados.head(10))
+
+##Baixar planilha
+# Baixando a planilha com os perfis para abrir no Excel
+from google.colab import files
+nome_arquivo = 'Planilha_com_Perfis_6_2025.xlsx'
+dados6_2025_ordenados.to_excel(nome_arquivo, index=False, engine='openpyxl')
+
+files.download(nome_arquivo)
